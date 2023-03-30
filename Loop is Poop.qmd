@@ -1,0 +1,936 @@
+---
+title: "Loop Is Poop"
+author: "Maher Said"
+format: html
+editor: visual
+---
+
+# Why "Loop is Poop"? 💩
+
+1.  It rhymes, so it must be true.
+2.  Loops are painfully slow in most coding languages you're likely to use: Python, R, Matlab, etc.
+
+The 3rd Circle of R Inferno: Failing to Vectorize (Patrick Burns, "R Inferno"),
+
+> We arrive at the third Circle, filled with cold, unending rain. Here stands Cerberus barking out of his three throats. Within the Circle were the blasphemous wearing golden, dazzling cloaks that inside were all of lead---weighing them down for all of eternity. This is where Virgil said to me, "Remember your science---the more perfect a thing, the more its pain or pleasure." Here is some sample code:
+>
+> ```{r, eval=F}
+> lsum <- 0
+> >
+> for (i in 1:length(x)) {
+> 	lsum <- lsum + log(x[i])
+> }
+> ```
+>
+> No. No. No. This is speaking R with a C accent---a strong accent.
+
+![](images/fire.gif){width="234"}
+
+> We can do the same thing much simpler:
+>
+> ```{r, eval=F}
+> lsum <- sum(log(x))
+> ```
+>
+> This is not only nicer for your carpal tunnel, it is computationally much faster. (As an added bonus it avoids the bug in the loop when x has length zero.)
+
+But... why does this matter?
+
+## Compiled vs. Interpreted Languages
+
+Most popular day-to-day coding languages you're interacting with fall under the category of "interpreted languages". What does that mean? From your perspective as a user, it means coding is easier than ever and that you can maneuver your code in real-time.
+
+This is a costly process, let's look at the looped code above again.
+
+```{r, eval=F}
+for (i in 1:length(x)) {
+	lsum <- lsum + log(x[i])
+}
+```
+
+If you run this code, your R (same in Python) interpreter will have to do the following (oversimplification):
+
+-   Check if `x[i]` is a numeric value that can be passed to `log()`
+
+-   Check that `lsum` and `log(x[i])` are numeric and compatible for the addition operation
+
+-   Check that the result of the addition operation can be assigned to the `lsum`
+
+-   Convert the code to machine-level instructions and execute them
+
+This process happens X times. The first 3 steps are what is called "type-checking".
+
+By contrast, in "compiled languages", the code is converted to machine language before runtime. This is the reason why you have to compile C or C++ code prior to execution and cannot run it line-by-line. Such languages are also "statically-typed", where data types need to be declared before being used, so the need for type-checking is limited.
+
+Let's see dynamic typing in action:
+
+```{r}
+mahers_list = 1
+print(mahers_list)
+
+mahers_list = append(mahers_list, "potato")
+print(mahers_list)
+
+# beware! note how the numeric vector is converted to a character vector
+```
+
+As the user, you didn't need to bother with declaring types, but instead R takes the brunt of that responsibility, falling back to the lowest common type that can be assigned to the elements of a vector.
+
+Python takes this flexibility a step further, mixing element types within the same the list.
+
+```{python}
+mahers_list = [1]
+print(mahers_list)
+
+mahers_list.append("potato")
+print(mahers_list)
+
+# note how the numeric element is in the same list with the string element
+```
+
+This flexibility comes at a cost. Having to perform checks and translations repeatedly within loops in interpreted languages results in noticeable poor performance, whereas compiled languages - having more control over the execution process - compiles code that is better optimized for looping and generally more efficient.
+
+For the curious, here's how the loop above would look like in C:
+
+``` c
+#include <stdio.h>
+#include <math.h>
+
+int main() {
+    double x[] = {1.0, 2.0, 3.0, 4.0, 5.0}; // replace with your values
+    int length = sizeof(x) / sizeof(x[0]);
+    double lsum = 0;
+
+    for (int i = 0; i < length; i++) {
+        lsum += log(x[i]);
+    }
+
+    printf("lsum: %f\n", lsum);
+    return 0;
+}
+```
+
+## More Code, More Errors
+
+![](images/code.gif){width="315"}
+
+Coding is... annoying. The more code you write, and the more intricate the code you write is, the more likely you will make an error. Some of those errors will be loud and code-breaking, some of those errors will not yield a warning, go unnoticed, and make it into your final published work.
+
+Subsequently, the more code you write, the more debugging lines you should include in your code, which means you write more code...
+
+Here's a code (in both, R and Python). Can you tell me what it does? Can you tell me where the error is?
+
+```{r, eval=FALSE}
+i = 1
+
+while (i <= nrow(df)) {
+	bool = FALSE
+	
+	for (j in (i + 1):nrow(df)) {
+		if (df$id[i] == df$id[j]) {
+			bool = TRUE
+			break
+		}
+	}
+	
+	if (bool) {
+		df = df[-j,]
+	} else {
+		i = i + 1
+	}
+	
+}
+```
+
+```{python, eval=FALSE}
+import pandas as pd
+
+i = 0
+
+while i <= len(df):
+    bool_ = False
+
+    for j in range(i + 1, len(df)):
+        if df.loc[i, 'id'] == df.loc[j, 'id']:
+            bool_ = True
+            break
+
+    if found_duplicate:
+        df = df.drop(j, axis=0).reset_index(drop=True)
+    else:
+        i += 1
+```
+
+Do not fret! Let's break down this code below, fix it and show why this is poor coding for languages such as R and Python.
+
+> Transparent code is an important form of efficiency. Computer time is cheap, human time (and frustration) is expensive. This fact is enshrined in the maxim of Uwe Ligges \[...\]:
+>
+> *Computers are cheap, and thinking hurts.*
+
+*- Patrick Burns, "R Inferno"*
+
+Before we move on, please install the following R library:
+
+```{r}
+#install.packages('tidyverse')
+```
+
+Also make sure to install `pandas` in your Python environment.
+
+# Example 1: Loop, Be Gone!
+
+Let's look again at the (abominable) R code above. If you're still wondering, the code filters a dataframe by unique IDs (based on first-appearance).
+
+First, let's create a sample dataframe for us to work with.
+
+```{r}
+# Set the seed for random number generation to make the results reproducible
+set.seed(42)
+
+# Define the size of the dataset
+n = 5000
+
+# Create a dataframe with random data
+# 1. 'id' column: a random sample of integers from 1 to 5000, with replacement (allowing duplicates)
+# 2. 'value' column: a random sample of n continuous uniform numbers between 0 and 1 (default range for runif())
+df = data.frame(id = sample(1:5000, n, replace = TRUE), value = runif(n))
+
+# Backup dataframe for future reference
+df5k = df
+
+# Printing dataframe
+df5k
+```
+
+```{python}
+# reading df5k into Python from R
+df5k = r.df5k
+```
+
+Now, let's improve the code above with clearer variable names, benchmarking, comments and printouts. Oh, and fix the error in `while (i <= nrow(df))` to `while (i < nrow(df))`. (p.s. since this is bad coding practice, do not spend time trying to learn the code itself or understand it; instead, fear it.)
+
+```{r}
+# Record the start time
+start_time = Sys.time()
+
+# Initialize i, k, and the duplicate counter
+i = 1
+k = 1
+n_duplicates = 0
+
+# Iterate through the dataframe while i is less than the number of rows
+while (i < nrow(df)) {
+  # Increment k at each iteration
+  k = k + 1
+  
+  # Initialize is_duplicate to FALSE
+  is_duplicate = FALSE
+  
+  # Iterate through the remaining rows from i+1 to the end
+  for (j in (i+1):nrow(df)) {
+    # Check if the IDs at positions i and j are the same
+    if (df$id[i] == df$id[j]) {
+      # If they are, set is_duplicate to TRUE and break the inner loop
+      is_duplicate = TRUE
+      break
+    }
+  }
+  
+  # If is_duplicate is TRUE, remove the j-th row from the dataframe
+  if (is_duplicate) {
+    n_duplicates = n_duplicates + 1
+    df = df[-j, ]
+  } else {
+    # If is_duplicate is FALSE, increment i
+    i = i + 1
+  }
+  
+  # Print a progress update every 100 duplicates or when the loop finishes
+  if ((is_duplicate & n_duplicates %% 100 == 0) | k == n) {
+    cat(glue::glue_col(">> i: {blue {bold {k}}}/{n}, duplicates: {red {bold {n_duplicates}}}\n\n"))
+  }
+}
+
+# Record the end time
+end_time = Sys.time()
+
+# Show run time
+cat(glue::glue("\n\nRun time: {difftime(end_time, start_time, units = 'secs')} seconds\n"))
+
+# Display result
+df
+```
+
+The logic of the code isn't very complicated in reality:
+
+1.  Start with the first ID in the dataframe
+
+2.  Loop through all other IDs (2 to n)
+
+3.  Check if any ID matches the first ID
+
+4.  If a match is found, delete current row and restart the process
+
+5.  If no matches are found, move forward to the 2nd ID and restart the process
+
+6.  Repeat until n^th^ ID
+
+This may seem odd, but is not too far from the process that someone with a "heavy C accent" would go through.
+
+> A double for loop is often the result of a function that has been directly translated from another language. Translations that are essentially verbatim are unlikely to be the best thing to do. Better is to rethink what is happening with R in mind. Using direct translations from another language may well leave you longing for that other language. Making good translations may well leave you marvelling at R's strengths. (The catch is that you need to know the strengths in order to make the good translations.)
+>
+> If you are translating code into R that has a double for loop, think.
+
+*- Patrick Burns, "R Inferno"*
+
+In base R...? Well...
+
+```{r}
+# get boolean list for duplicated IDs
+duplicates = duplicated(df5k$id)
+
+# negate to get boolean list for unique IDs instead
+mask = !duplicates
+
+# apply mask
+df = df5k[mask, ]
+
+#display
+df
+```
+
+R aims to be heavily vectorized. What that means is that you generally - with exceptions - should avoid interacting with vectors/arrays/lists element-wise, but rather learn and use functions that perform needed computations in a vectorized fashion.
+
+Python's `numpy` and `pandas` packages, as well as other similar packages, follow a similar mantra.
+
+```{python}
+# importing pandas
+import pandas as pd
+
+# get boolean list for duplicated IDs
+duplicates = df5k['id'].duplicated()
+
+# negate to get boolean list for unique IDs instead
+mask = ~duplicates
+
+# apply mask
+df = df5k[mask]
+
+#display
+df
+```
+
+In both cases, the code (1) is short and to the point, (2) is easy to read, (3) is almost definitely bug-free, (4) is exponentially faster and (5) would take very few minutes to write.
+
+## Benchmarking performance
+
+We can clearly see the impact of writing loops on run-time by looking at the benchmark below comparing the looped version of the code versus the vectorized version (using R on Intel Core i7-6700HQ CPU \@ 3.20GHz). Note the log-scale! Almost half a billion rows can be processed using the vectorized version of the code in the time it would take to process 5,000 rows in our looped code.
+
+![](images/benchmark.png)
+
+Impressive. But where do these speed gains come from? We're still using an interpreted language.
+
+### 1) Computers love linear algebra
+
+Without delving into the depths of CPU architecture, modern CPUs are really good at matrix calculations. Some of the processes used by vectorized functions make use matrix/vector manipulations to perform operations that seemingly require loops without actually looping.
+
+For example, you could loop over 100 elements of a vector **A** to get their square or you could calculate that as the diagonal of **AA**^T^.
+
+### 2) Vectorized functions cheat
+
+If true vectorization is not possible, many of these functions lean on pre-compiled code (e.g. C/Fortran) in the backend! What that means is that the "loop" still exists somewhere in the backend but is exponentially more efficient by using compiled code instead of being interpreted in real time. As a user, you still exclusively interact with R/Python while the functions secretly fire up the compiled machine-code in the background.
+
+### 3) We suck at coding
+
+The loop written earlier accomplishes its objective of filtering a dataframe by unique IDs, but - even ignoring the looping - definitely does that quite inefficiently. Some people spend years perfecting and optimizing single functions to be efficient and error-free, and these codes are the ones that end up being the basis of popular functions you see in R and Python.
+
+## R Tidyverse & Pandas Methods
+
+R, thanks to Hadley Wickham's `tidyverse`, can take code cleanliness, efficiency and simplicity even a step further. Using `tidyverse`, the filtering process can be more concise (and also likely more efficient).
+
+```{r}
+# loading tidyverse
+library(tidyverse)
+
+# keep unique
+df = df5k %>% distinct(id, .keep_all = TRUE)
+
+# displaying
+df
+```
+
+While `pandas` generally lags behind `tidyverse` in terms of conciseness and flexibility (mostly due to being bound by "pythonic" syntax), it has an equivalent method in this case.
+
+```{python}
+# import pandas
+import pandas as pd
+
+# drop duplicates
+df = df5k.drop_duplicates(subset='id', keep='first')
+
+# displaying
+df
+```
+
+# Example 2: Copy-Paste Ad Nauseam
+
+Don't be embarrassed, we all do it.
+
+![](images/shame.gif){width="370"}
+
+Here's two small bits of some code that my... ummm... friend Shmaher wrote many, many years ago.
+
+```{r, eval=FALSE}
+# mode shares
+
+all.10 = auto.10 + trans.10 + walk.10 + other.10
+all.20 = auto.20 + trans.20 + walk.20 + other.20
+all.30 = auto.30 + trans.30 + walk.30 + other.30
+all.40 = auto.40 + trans.40 + walk.40 + other.40
+all.50 = auto.50 + trans.50 + walk.50 + other.50
+all.60 = auto.60 + trans.60 + walk.60 + other.60
+all.total = all.10 + all.20 + all.30 + all.40 + all.50 + all.60
+
+all.cumul.10 = auto.cumul.10 + trans.cumul.10 + walk.cumul.10 + other.cumul.10
+all.cumul.20 = auto.cumul.20 + trans.cumul.20 + walk.cumul.20 + other.cumul.20
+all.cumul.30 = auto.cumul.30 + trans.cumul.30 + walk.cumul.30 + other.cumul.30
+all.cumul.40 = auto.cumul.40 + trans.cumul.40 + walk.cumul.40 + other.cumul.40
+all.cumul.50 = auto.cumul.50 + trans.cumul.50 + walk.cumul.50 + other.cumul.50
+all.cumul.60 = auto.cumul.60 + trans.cumul.60 + walk.cumul.60 + other.cumul.60
+
+
+trans.share.10 = trans.10/all.10
+trans.share.20 = trans.20/all.20
+trans.share.30 = trans.30/all.30
+trans.share.40 = trans.40/all.40
+trans.share.50 = trans.50/all.50
+trans.share.60 = trans.60/all.60
+trans.share = trans.total/all.total
+
+trans.share.cumul.10 = trans.cumul.10/all.cumul.10
+trans.share.cumul.20 = trans.cumul.20/all.cumul.20
+trans.share.cumul.30 = trans.cumul.30/all.cumul.30
+trans.share.cumul.40 = trans.cumul.40/all.cumul.40
+trans.share.cumul.50 = trans.cumul.50/all.cumul.50
+trans.share.cumul.60 = trans.cumul.60/all.cumul.60
+```
+
+```{r, eval=FALSE}
+AverageAge = (
+	map.df[, 11] * 2.5 + map.df[, 12] * 7.5 + map.df[, 13] * 12.5 +
+	map.df[, 14] * 16.5 + map.df[, 15] * 19 + map.df[, 16] * 20.5 +
+	map.df[, 17] * 21.5 + map.df[, 18] * 23.5 + map.df[, 19] * 27.5 +
+	map.df[, 20] * 32.5 + map.df[, 21] * 37.5 + map.df[, 22] * 42.5 +
+	map.df[, 23] * 47.5 + map.df[, 24] * 52.5 + map.df[, 25] * 57.5 +
+	map.df[, 26] * 61 + map.df[, 27] * 63.5 + map.df[, 28] * 68.5 +
+	map.df[, 29] * 72.5 + map.df[, 30] * 77.5 + map.df[, 31] * 82.5 +
+	map.df[, 32] * 87.5
+) / TotalPopulation
+```
+
+> Proficient in R with consistent track-record of complex scripts over 1000 lines.
+
+*- My résumé, probably*
+
+A few main problems here:
+
+1.  This is still looping, but worse: it's how you get carpal tunnel.
+
+2.  This is still looping, but worse: it makes my head hurt.
+
+3.  This is still looping, but worse: how do you even edit this?
+
+How do we avoid this? We'll be using (slightly modified) data from the 2021 5-year American Community Survey as an example.
+
+### Loading Libraries
+
+```{r}
+library(tidyverse)
+```
+
+## Loading data
+
+```{r}
+df = read_csv('./data/IL_demographics.csv')
+df
+```
+
+## Calculating proportions instead of totals
+
+If you're using base R, chances are you would do something along the lines below for a total of 15 copy-pasted lines (with the small gamble that you misedited something along the way).
+
+```{r, eval=FALSE}
+df['gender_male'] = df['gender_male']/df['poptotal']
+df['gender_female'] = df['gender_female']/df['poptotal']
+# etc...
+df['age_75to84'] = df['age_75to84']/df['poptotal']
+df['age_85plus'] = df['age_85plus']/df['poptotal']
+```
+
+You could add the strings to a vector `column_names` and loop through the process, but NO LOOPS! You could also do it by numeric index (either by looping or with some trickery), but that is bad practice as any changes to the column order could mess up your data.
+
+With `tidyverse`, this can be accomplished with little fuss. In `mutate()` and `dplyr` (the subpackage of tidyverse to which `mutate()` belongs) functions, the `~` you see in the specification allows us to pass a formula/function. Additionally, `.x` is how to refer to the selected columns within `dplyr` functions.
+
+```{r}
+df_new = df %>%
+	mutate(across(
+		.cols = gender_male:age_85plus,
+		.fns = ~ .x/poptotal
+	))
+
+df_new
+```
+
+Let's say our columns are not conveniently in order, how do we do that?
+
+```{r}
+df_unordered = df %>%
+	relocate(poptotal, .after=gender_female)
+
+df_unordered
+```
+
+```{r}
+df_new = df_unordered %>%
+	mutate(across(
+		.cols = -c(GEOID, poptotal),
+		.fns = ~ .x/poptotal
+	))
+
+df_new
+```
+
+Alternatively,
+
+```{r}
+df_new = df_unordered %>%
+	mutate(across(
+		.cols = c(gender_male:gender_female, age_0to4:age_85plus),
+		.fns = ~ .x/poptotal
+	))
+
+df_new
+```
+
+Let's pretend for a moment that we're handling thousands of columns that are not sorted neatly but are name consistently (such as our `_` separator before categories),
+
+```{r}
+df_new = df_unordered %>%
+	mutate(across(
+		.cols = contains('_'),
+		.fns = ~ .x/poptotal
+	))
+
+df_new
+```
+
+Let's pretend that we want to convert all values to be in 1000s. We could use any of the approaches above, or...
+
+```{r}
+df_new = df %>%
+	mutate(across(
+		.cols = where(~ is.numeric(.x)),
+		.fns = ~ .x/1000
+	))
+
+
+df_new
+```
+
+Let's take things up a notch. Let's say we don't want to directly modify the population values, but rather create new columns with proportions.
+
+```{r}
+df_new = df %>%
+	mutate(across(
+		.cols = gender_male:age_85plus,
+		.fns = ~ .x/poptotal,
+		.names = '{col}_perc' # {col} refers to the original column name
+	))
+
+df_new
+```
+
+We now want to calculate the average age by ZIP-code. Although we have all the information needed, we need to extract the age boundaries of each category, calculated the median and then multiply by the respective columns in the dataframe.
+
+Let's start with the more intuitive approach from a human perspective (but not coding): 1) extract the age from the column names (just as we would do on paper) 2) multiply the elements of each column with the respective age 3) sum the values by row to get the average age
+
+Even though we can extract the ages into a list manually, you don't want to do that because you might introduce errors and because that is not feasible for large datasets. Using `regex` (refer to: https://r4ds.had.co.nz/strings.html), we can extract the age values easily (not really, `regex` is a pain to learn, but you should!).
+
+```{r}
+age_list = df_new %>%
+	
+	# some preprocessing
+	select(age_0to4:age_85plus) %>% # select the age variables to avoid clutter
+	rename(age_85to99 = age_85plus) %>% # renaming the 85+ category to be consistent
+	colnames() %>% # getting column names
+	
+	# extracting
+	str_extract_all('\\d+')
+	# \\d: numeric digit
+	# +: 1 or more consecutive occurrences
+	# \\d+: extracts any occurence of 1 or more consecutive digits
+
+head(age_list)
+```
+
+This is a great start, but we get a list (more annoying to work with than vectors). The "numbers" are also characters, not actually numbers as indicated by the quotes. Let's do some tidying. A neat trick is to convert first into a dataframe; here's what it looks like.
+
+```{r}
+age_list = as.data.frame(age_list)
+age_list
+```
+
+One small logical issue here is that the upper boundary needs to be increase by 1 year; when we say 0 to 4 years, that means 0 to 4.999...999 years, which converges to 0 to 5 years with a mid-point of 2.5, not 2.
+
+This is something that base R can do very comfortably, so don't feel tied to the `tidyverse` environment when you don't need to be.
+
+We can now implement our steps.
+
+```{r}
+# convert to numeric
+age_list = age_list %>%
+	as.data.frame() %>%
+	mutate(across(
+		.cols = everything(),
+		.fns = ~ as.numeric(.x)
+	))
+
+# increment 2nd row by 1
+age_list[2,] = age_list[2,] + 1
+age_list # display
+
+age_midpts = age_list %>%
+	colMeans()
+```
+
+While we could do without fixing the vector names, it's almost always good practice to retain consistency. We could pull the names straight from our dataframe.
+
+```{r}
+names(age_midpts) = df_new %>%
+	select(age_0to4:age_85plus) %>%
+	colnames()
+
+rm(age_list) #it's good habit to discard variables you don't need anymore
+
+age_midpts
+```
+
+Next step is to multiply the appropriate columns by the respective age. This is another case where base R does really well!
+
+```{r}
+# create a vector of names for cleanliness
+vars = names(age_midpts)
+vars
+
+# don't forget that the names are mismatches by the suffix `_perc`
+vars_perc = str_c(vars, '_perc')
+vars_perc
+
+# we'll save the results into a temporary dataframe
+df_temp = df_new[vars_perc] * age_midpts[vars]
+
+# display
+df_temp
+```
+
+We could have done the calculation using only `age_midpts` instead of using `age_midpts[vars]`, but using the latter ensures that all elements of `df_new` and `age_midpts` are perfectly aligned (we know that they already are, but performing the step explicitly is better practice).
+
+Finally, we calculate the averages and move them back to `df_new`
+
+```{r}
+df_new = df_new %>%
+	mutate(avgage = rowSums(df_temp))
+
+df_new
+```
+
+## Method 2
+
+```{r}
+df_new = df %>%
+	
+	select(-contains('gender')) %>%
+	pivot_longer(
+		cols = starts_with('age'),
+		values_to = 'pop',
+		names_to = c('age_lower', 'age_upper'),
+		names_pattern = 'age_(\\d+)[a-z]+(.*)'
+	)
+
+df_new
+```
+
+```{r}
+df_new = df_new %>%
+	
+	mutate(across(
+		.cols = matches('age_[a-z]{5}'),
+		.fns = ~ ifelse(.x == '', 99, as.numeric(.x))
+	))
+
+df_new
+```
+
+```{r}
+df_new = df_new %>%
+	
+	mutate(
+		perc = pop/poptotal,
+		age_upper = age_upper + 1,
+		age_midpt = (age_lower + age_upper)/2,
+		age_avg = perc * age_midpt
+	)
+
+df_new
+```
+
+```{r}
+df_new = df_new %>%
+	
+	group_by(GEOID) %>%
+	summarize(avgage = sum(age_avg))
+
+df_new
+```
+
+Now we can either join this new column or work on it separately.
+
+# Summarizing & Plotting
+
+We are curious about the age and gender differences between Chicago, Cook County (excl. Chicago) and Illinois (excl. Cook County). For reference, Cook County's ZIP codes range from 60004 to 60827. Chicago's ZIP codes are 60601, 60602, 60603, 60604, 60605, 60606, 60607, 60611, 60610, 60654 and 60642.
+
+Here's the `chicago_zips` in-code for convenience:
+
+```{r}
+chicago_zips = c(60601, 60602, 60603, 60604, 60605, 60606, 60607, 60610, 60611, 60642, 60654)
+```
+
+We'll need to get the necessary information for `gender` and plot our findings
+
+```{r}
+df_plt = df %>%
+	select(GEOID, poptotal, gender_male, gender_female) %>%
+	left_join(df_new, by='GEOID')
+
+df_plt
+```
+
+```{r}
+df_plt = df_plt %>%
+	mutate(female = gender_female/(gender_male + gender_female)) %>%
+	select(-starts_with('gender'))
+
+df_plt
+```
+
+```{r}
+df_plt = df_plt %>%
+	mutate(
+		zcta = str_extract(GEOID, '\\d{5}$'),
+		zcta = as.integer(zcta),
+		.before = 1
+	) %>%
+	select(-GEOID)
+
+df_plt
+```
+
+Now that we have a nice clean dataframe, we need to assign each ZCTA to the correct category (Chicago, Cook, Illinois).
+
+```{r}
+df_plt = df_plt %>%
+	mutate(
+		region = case_when(
+			zcta %in% chicago_zips ~ 'Chicago',
+			zcta %in% 60004:60827 ~ 'Cook',
+			T ~ 'Illinois'
+		)
+	)
+
+df_plt
+```
+
+```{r}
+p = df_plt %>%
+	
+	ggplot(aes(
+		x = avgage,
+		fill = region
+	)) +
+	
+	geom_histogram(aes(y = ..density..), bins = 30) +
+	
+	xlab('Distribution of Avg. Age by ZCTA') +
+	ylab('Density') +
+	labs(fill = 'Region') +
+	
+	facet_wrap(~region, ncol=3)
+
+p
+```
+
+```{r, fig.width=11, fig.height=4}
+df_plt %>%
+	
+	ggplot(aes(
+		x = avgage,
+		fill = region
+	)) +
+	
+	geom_histogram(
+		aes(y = ..density..),
+		color = 'black',
+		bins = 30) +
+	
+	xlab('Distribution of Avg. Age by ZCTA') +
+	ylab('Density') +
+	labs(fill = 'Region') +
+	
+	scale_fill_viridis_d(direction=-1) +
+	
+	hrbrthemes::theme_ipsum() +
+	theme(panel.border = element_rect(colour = 'black', fill=NA)) +
+	
+	facet_wrap(~region, ncol=3)
+	
+```
+
+```{r}
+df_plt %>%
+	group_by(region) %>%
+	summarize(
+		'Avg. Age' = weighted.mean(avgage, poptotal),
+		'Female-to-Male Ratio' = weighted.mean(female, poptotal)
+	) %>%
+	rename(Region = region)
+
+df_plt
+```
+
+# User, beware.
+
+The 4th Circle of R Inferno: Over-Vectorizing (Patrick Burns, "R Inferno"),
+
+> We skirted past Plutus, the fierce wolf with a swollen face, down into the fourth Circle. Here we found the lustful.
+>
+> It is a good thing to want to vectorize when there is no effective way to do so. It is a bad thing to attempt it anyway.
+
+![](images/lucifer.gif){width="400"}
+
+Vectorizing and equivalent approaches are great, powerful tools. Do use these tools, even when not called for, as part of the learning process - to develop the muscle memory or quench a curiosity.
+
+Loops, however, are not the enemy. Use them when justified.
+
+# The Last Word
+
+## `apply()`, more like `appLIE()`
+
+`apply()` (and `map()`) functions are a powerful tools, but they are loops in disguise. Use as needed, but use them sparingly.
+
+```{r}
+# using `sapply()`
+squares = sapply(1:5, function(x) x^2)
+squares
+```
+
+```{r}
+# looping
+squares = numeric()
+for (n in 1:5) {
+  squares = append(squares, n^2)
+}
+
+squares
+```
+
+## Code in bites
+
+Functions are often advertised as this tool to avoid repetitive coding, but they're a great tool for cleaner code and better error.
+
+Write your code in small bites (as small as a single line) within functions withh self-explanatory names. Here's a Python example doing some basic calculations.
+
+```{python}
+# bite-sized coding
+def calculate_sum(numbers, power=1):
+    return sum(number ** power for number in numbers)
+
+def sum_of_numbers(numbers):
+    return calculate_sum(numbers, 1)
+
+def sum_of_squares(numbers):
+    return calculate_sum(numbers, 2)
+
+def sum_of_cubes(numbers):
+    return calculate_sum(numbers, 3)
+
+numbers = [1, 2, 3, 4, 5]
+
+print("Sum of numbers:", sum_of_numbers(numbers))
+print("Sum of squares:", sum_of_squares(numbers))
+print("Sum of cubes:", sum_of_cubes(numbers))
+```
+
+```{python}
+# no functions
+numbers = [1, 2, 3, 4, 5]
+
+sum_of_numbers = 0
+sum_of_squares = 0
+sum_of_cubes = 0
+
+for number in numbers:
+    sum_of_numbers += number
+    square = number * number
+    sum_of_squares += square
+    cube = number * number * number
+    sum_of_cubes += cube
+
+print("Sum of numbers:", sum_of_numbers)
+print("Sum of squares:", sum_of_squares)
+print("Sum of cubes:", sum_of_cubes)
+```
+
+## Cyyyythooon
+
+![](images/scyther.gif){width="367"}
+
+Just like R has its super powers, so does Python. Cython is that super power.
+
+Cython converts Python's interactively-typed nature to statically-typed and automagically converts parts of your code to C, making loops more viable options.
+
+```{python, eval=FALSE}
+# example.pyx
+# note that `a` and `b` had to be statically defined
+def add_numbers(int a, int b):
+    return a + b
+```
+
+## `@jit` habibi
+
+Another superpower of Python is "Just-in-Time" compilation, mimicking what Cython can do. Instead of statically defining your variables, you add a simple [decorator](https://towardsdatascience.com/the-simplest-tutorial-for-python-decorator-dadbf8f20b0f) to your Python code as-is and the `jit` compiler takes care of the rest.
+
+```{python, eval=FALSE}
+from numba import jit
+
+@jit(nopython=True)
+def add_numbers(a, b):
+    return a + b
+```
+
+`jit` also let's you (more) easily use multithreading and GPU compute.
+
+```{python, eval=FALSE}
+from numba import jit
+
+@jit(nopython=True, parallel=True)
+def add_numbers(a, b):
+    return a + b
+```
+
+```{python, eval=FALSE}
+from numba import cuda
+
+@cuda.jit(nopython=True, parallel=True)
+def add_numbers(a, b):
+    return a + b
+```
